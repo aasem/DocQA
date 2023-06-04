@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Document Q & A</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background-color: #f5f5f5;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                margin: 0;
+            }
+            h1 {
+                color: #333;
+            }
+            .upload-box {
+                background-color: white;
+                border-radius: 8px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                padding: 20px;
+                text-align: center;
+            }
+            .upload-btn-wrapper {
+                position: relative;
+                overflow: hidden;
+                display: inline-block;
+            }
+            .btn {
+                border: 2px solid gray;
+                color: gray;
+                background-color: white;
+                padding: 8px 20px;
+                border-radius: 8px;
+                font-size: 1.2em;
+                font-weight: bold;
+                cursor: pointer;
+            }
+            .btn:hover {
+                background-color: gray;
+                color: white;
+            }
+            #file {
+                display: none;
+            }
+            #file-name {
+                margin-top: 10px;
+                font-style: italic;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="upload-box">
+            <h1>Upload Your Document</h1>
+            <form action="/" method="post" enctype="multipart/form-data">
+                <div class="upload-btn-wrapper">
+                    <label class="btn" for="file">Choose a file</label>
+                    <input id="file" type="file" name="file" onchange="updateFileName(this)">
+                </div>
+                <div id="file-name"></div><br>
+                <input class="btn" type="submit" value="Upload">
+            </form>
+        </div>
+        <script>
+            function updateFileName(inputElement) {
+                var fileNameElement = document.getElementById("file-name");
+                fileNameElement.textContent = "Selected file: " + inputElement.files[0].name;
+            }
+        </script>
+    </body>
+</html>
