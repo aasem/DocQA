@@ -1,4 +1,4 @@
-# Chat with Multiple PDFs
+# Document Q & A
 
 This is a Streamlit application that allows users to chat with the content of multiple PDFs. The application reads and processes the text from the PDFs, generates embeddings for the text chunks, and uses a retrieval-based conversation model to answer user questions about the content of the PDFs.
 
