@@ -1,89 +1,108 @@
-import pandas as pd
-from PyPDF2 import PdfReader
-from docx import Document
-from os.path import splitext, join
-from werkzeug.utils import secure_filename
-from flask import Flask, request, render_template, redirect, url_for
-from langchain.embeddings.openai import OpenAIEmbeddings
+import streamlit as st
 from decouple import config
-from langchain.vectorstores import Chroma
+from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
-from langchain.chains.question_answering import load_qa_chain
-from langchain.llms import OpenAI
+from langchain.embeddings import OpenAIEmbeddings, HuggingFaceInstructEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.chat_models import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationalRetrievalChain
+from htmllayouts import css, bot_template, user_template
+from langchain.llms import HuggingFaceHub
 
-app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads/'
 
-openai_api_key = config('OPENAI_KEY')
-if openai_api_key is None or openai_api_key == "":
-    print("API_KEY is not set")
-    exit(1)
+def get_pdf_text(pdf_docs):
+    text = ""
+    for pdf in pdf_docs:
+        pdf_reader = PdfReader(pdf)
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+    return text
 
-text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=0, separator="\n")
-embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-chain = load_qa_chain(OpenAI(temperature=0, openai_api_key=openai_api_key), chain_type="stuff")
 
-def read_file(file_path):
-    file_type = splitext(file_path)[-1].lower()
+def get_text_chunks(text):
+    text_splitter = CharacterTextSplitter(
+        separator="\n",
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len
+    )
+    chunks = text_splitter.split_text(text)
+    return chunks
 
-    if file_type == ".txt":
-        try:
-            with open(file_path, "r", encoding='utf-8') as f:
-                content = f.read()
-        except UnicodeDecodeError:
-            with open(file_path, "r", encoding='ISO-8859-1') as f:
-                content = f.read()
-    elif file_type == ".pdf":
-        with open(file_path, "rb") as f:
-            pdf = PdfReader(f)
-            content = " ".join(page.extract_text() for page in pdf.pages)
-    elif file_type == ".docx":
-        doc = Document(file_path)
-        content = " ".join(paragraph.text for paragraph in doc.paragraphs)
-    elif file_type in [".csv", ".xlsx"]:
-        df = pd.read_csv(file_path) if file_type == ".csv" else pd.read_excel(file_path)
-        content = df.to_string()
-    else:
-        raise ValueError(f"File type '{file_type}' not supported.")
-        
-    return content
 
-def make_inference(query, docsearch):
-    docs = docsearch.get_relevant_documents(query)
-    return chain.run(input_documents=docs, question=query)
+def get_vectorstore(text_chunks, api_key):
+    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+    # embeddings = HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-xl")
+    vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
+    return vectorstore
 
-@app.route('/')
-def home():
-    return render_template('index.html')
 
-@app.route('/', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return redirect(request.url)
-    file = request.files['file']
-    if file.filename == '':
-        return redirect(request.url)
-    if file:
-        filename = secure_filename(file.filename)
-        file_path = join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-        return redirect(url_for('chat', filename=filename))
+def get_conversation_chain(vectorstore, api_key):
+    llm = ChatOpenAI(verbose=False, openai_api_key=api_key)
+    # llm = HuggingFaceHub(repo_id="google/flan-t5-xxl", model_kwargs={"temperature":0.5, "max_length":512})
 
-@app.route('/chat')
-def chat():
-    filename = request.args.get('filename')
-    return render_template('chat.html', filename=filename)
+    memory = ConversationBufferMemory(
+        memory_key='chat_history', return_messages=True)
+    conversation_chain = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=vectorstore.as_retriever(),
+        memory=memory
+    )
+    return conversation_chain
 
-@app.route('/ask', methods=['POST'])
-def ask_question():
-    filename = request.form['filename']
-    question = request.form['question']
-    file_path = join(app.config['UPLOAD_FOLDER'], filename)
-    document_content = read_file(file_path)
-    texts = text_splitter.split_text(document_content)
-    docsearch = Chroma.from_texts(texts, embeddings, metadatas=[{"source": str(i)} for i in range(len(texts))]).as_retriever()
-    answer = make_inference(question, docsearch)
-    return render_template('chat.html', filename=filename, question=question, answer=answer)
+
+def handle_userinput(user_question):
+    response = st.session_state.conversation({'question': user_question})
+    st.session_state.chat_history = response['chat_history']
+
+    for i, message in enumerate(st.session_state.chat_history):
+        if i % 2 == 0:
+            st.write(user_template.replace(
+                "{{MSG}}", message.content), unsafe_allow_html=True)
+        else:
+            st.write(bot_template.replace(
+                "{{MSG}}", message.content), unsafe_allow_html=True)
+
+
+def main():
+    openai_api_key = config('OPENAI_KEY')
+    if openai_api_key is None or openai_api_key == "":
+        print("API_KEY is not set")
+        exit(1)
+
+    st.set_page_config(page_title="Chat with multiple PDFs",
+                       page_icon=":books:")
+    st.write(css, unsafe_allow_html=True)
+
+    if "conversation" not in st.session_state:
+        st.session_state.conversation = None
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = None
+
+    st.header("Chat with multiple PDFs :books:")
+    user_question = st.text_input("Ask a question about your documents:")
+    if user_question:
+        handle_userinput(user_question)
+
+    with st.sidebar:
+        st.subheader("Your documents")
+        pdf_docs = st.file_uploader(
+            "Upload your PDFs here and click on 'Process'", accept_multiple_files=True)
+        if st.button("Process"):
+            with st.spinner("Processing"):
+                # get pdf text
+                raw_text = get_pdf_text(pdf_docs)
+
+                # get the text chunks
+                text_chunks = get_text_chunks(raw_text)
+
+                # create vector store
+                vectorstore = get_vectorstore(text_chunks, openai_api_key)
+
+                # create conversation chain
+                st.session_state.conversation = get_conversation_chain(vectorstore, openai_api_key)
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    main()

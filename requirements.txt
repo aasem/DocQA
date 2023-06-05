@@ -1,9 +1,4 @@
-docx==0.2.4
-Flask==2.3.2
-langchain==0.0.189
-pandas==2.0.2
-pandas_stubs==1.2.0.35
+langchain==0.0.190
 PyPDF2==3.0.1
 python-decouple==3.8
-python_docx==0.8.11
-Werkzeug==2.3.4
+streamlit==1.23.1
